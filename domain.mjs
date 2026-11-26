@@ -21,10 +21,17 @@ export function totals(data,format){
 export function validateData(data,format,reg,{submit=false,name=''}={}){
  const errors=[],rows=data?.rows;
  if(!Array.isArray(rows)||rows.length>2000)return ['Estrutura de disciplinas inválida.'];
- if(!Number.isInteger(Number(data.ac))||Number(data.ac)<0)errors.push('AC deve ser inteira e não negativa.');
+ if(!Number.isSafeInteger(Number(data.ac))||Number(data.ac)<0)errors.push('AC deve ser inteira e não negativa.');
  if(!Number.isInteger(Number(data.semesters))||Number(data.semesters)<1||Number(data.semesters)>30)errors.push('Duração inválida.');
  const max=Number(data.semesters)*(format==='presencial'?1:2),names=new Set();
+ if(data.certs!==undefined){
+  if(!data.certs||typeof data.certs!=='object'||Array.isArray(data.certs))errors.push('Certificações inválidas.');
+  else for(const [period,text] of Object.entries(data.certs))if(!/^[1-9][0-9]*$/.test(period)||Number(period)>max||typeof text!=='string'||text.length>2000)errors.push('Certificação deve pertencer a um período válido e conter texto.');
+ }
  for(const row of rows){
+  if(typeof row.name!=='string'||row.name.length>2000)errors.push('Nome de disciplina inválido.');
+  if(row.tc!==undefined&&typeof row.tc!=='boolean'||row.online!==undefined&&typeof row.online!=='boolean')errors.push('TC e DO devem ser indicações SIM/NÃO.');
+  if(format!=='presencial'&&row.online)errors.push('DO é permitido somente no Presencial.');
   if(!Number.isInteger(Number(row.period))||Number(row.period)<1||Number(row.period)>max)errors.push('Período inválido.');
   for(const k of ['ch',...cols(format)])if(!Number.isSafeInteger(Number(row[k]||0))||Number(row[k]||0)<0)errors.push(`${row.name||'Disciplina'}: ${labels[k]} deve ser inteira e não negativa.`);
   if(submit){
@@ -36,6 +43,8 @@ export function validateData(data,format,reg,{submit=false,name=''}={}){
  }
  if(submit){
   const t=totals(data,format),dist=distribution(name,reg,format);
+  if(Object.values(t).some(n=>!Number.isSafeInteger(n)))errors.push('Os totais ultrapassam o limite de cálculo exato.');
+  if(reg.degree!=='Tecnólogo'&&Object.values(data.certs||{}).some(text=>String(text).trim()))errors.push('Certificações intermediárias são exclusivas dos cursos Tecnólogos.');
   if(!rows.length)errors.push('Inclua disciplinas.');
   if(!reg.formats?.includes(format)||dist.blocked)errors.push('Formato não permitido ao curso/grau/área.');
   if(Number(data.semesters)<Number(reg.semMin)||Number(data.semesters)>Number(reg.semMax))errors.push('Duração fora dos limites de integralização.');
