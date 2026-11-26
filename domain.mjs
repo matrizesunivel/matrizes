@@ -46,6 +46,7 @@ export function validateData(data,format,reg,{submit=false,name=''}={}){
   const minimum=Math.ceil(t.total*dist.pres/100);
   if(t.presential<minimum)errors.push(`Presencialidade mínima: ${minimum}h.`);
   if(t.mediated+Math.max(0,t.presential-t.total*dist.pres/100)<Math.ceil(t.total*dist.comp/100))errors.push('Mínimo complementar presencial/síncrono mediado não atendido.');
+  if(normal(reg.degree)==='licenciatura'){for(const [n,minimum] of Object.entries(reg.nuclei||{})){const hours=rows.filter(r=>r.nucleus===n).reduce((total,r)=>total+Number(r.ch||0),0);if(hours<Number(minimum))errors.push('Núcleo '+n+': mínimo '+minimum+'h.');}}
   if(normal(reg.degree)==='licenciatura'&&!names.has('libras'))errors.push('Licenciatura exige LIBRAS.');
  }
  return [...new Set(errors)];
