@@ -67,6 +67,7 @@ export function validateRegulation(payload){
  if(Number(c.semMax)<Number(c.semMin))errors.push('Integralização máxima inferior à mínima.');
  for(const k of ['internshipPercent','practicePercent'])if(c[k]!==null&&(!Number.isFinite(Number(c[k]))||Number(c[k])<0||Number(c[k])>100))errors.push('Percentual inválido.');
  if(!c.cine||!c.area||!c.source)errors.push('Informe CINE, área e fonte normativa.');
+ if(!/^(0[0-9]|10)$/.test(String(c.area??'')))errors.push('Selecione uma área CINE válida, de 00 a 10.');
  if(!Array.isArray(c.formats)||!c.formats.length||c.formats.some(f=>!formats[f]||distribution(payload.name,c,f).blocked))errors.push('Formatos incompatíveis com o curso/grau/área.');
  return errors;
 }
