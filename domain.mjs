@@ -4,6 +4,16 @@ export const formats={presencial:'Presencial',ead:'EaD',semi:'Semipresencial'};
 export const cols=f=>f==='presencial'?['ead','tp','prat','ext','est']:['eadAssincrona','eadSincronaMediada','eadSincrona','tp','prat','ext','est','prova'];
 export const labels={ch:'CH TOTAL',ead:'CH TEÓRICA EaD',tp:'CH TEÓRICA PRESENCIAL',prat:'CH PRÁTICA PRESENCIAL',ext:'CH EXTENSÃO',est:'CH ESTÁGIO',prova:'CH PROVA PRESENCIAL',eadAssincrona:'CH EaD ASSÍNCRONA',eadSincronaMediada:'CH SÍNCRONA MEDIADA',eadSincrona:'CH EaD SÍNCRONA'};
 export const normal=s=>String(s??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase().replace(/\s+/g,' ');
+// Convert decimal percentages to a rational before rounding the required hours.
+// Multiplying binary floating point numbers can turn an exact 126 into 126.00000000000001.
+export function minimumHours(total,percent){
+ if(!Number.isSafeInteger(total)||total<0||!Number.isFinite(Number(percent))||Number(percent)<0)return NaN;
+ const [mantissa,exponent='0']=String(Number(percent)).toLowerCase().split('e'),parts=mantissa.split('.'),scale=(parts[1]?.length||0)-Number(exponent);
+ let numerator=BigInt(parts.join('')),denominator=100n;
+ if(scale>0)denominator*=10n**BigInt(scale);else numerator*=10n**BigInt(-scale);
+ const value=(BigInt(total)*numerator+denominator-1n)/denominator;
+ return value>BigInt(Number.MAX_SAFE_INTEGER)?NaN:Number(value);
+}
 export function distribution(name,cfg,format){
  const n=normal(name),exclusive=['direito','medicina','enfermagem','odontologia','psicologia'].some(x=>new RegExp('(^|[^a-z])'+x+'([^a-z]|$)').test(n));
  if(exclusive&&format!=='presencial')return {blocked:true,pres:0,comp:0};
@@ -22,7 +32,7 @@ export function totals(data,format){
 export function validateData(data,format,reg,{submit=false,name=''}={}){
  const errors=[],rows=data?.rows;
  if(!Array.isArray(rows)||rows.length>2000)return ['Estrutura de disciplinas inválida.'];
- if(!Number.isSafeInteger(Number(data.ac))||Number(data.ac)<0)errors.push('AC deve ser inteira e não negativa.');
+ if(data.ac===null||typeof data.ac==='boolean'||!Number.isSafeInteger(Number(data.ac))||Number(data.ac)<0)errors.push('AC deve ser inteira e não negativa.');
  if(!Number.isInteger(Number(data.semesters))||Number(data.semesters)<1||Number(data.semesters)>30)errors.push('Duração inválida.');
  const max=Number(data.semesters)*(format==='presencial'?1:2),names=new Set();
  if(data.certs!==undefined){
@@ -34,7 +44,7 @@ export function validateData(data,format,reg,{submit=false,name=''}={}){
   if(row.tc!==undefined&&typeof row.tc!=='boolean'||row.online!==undefined&&typeof row.online!=='boolean')errors.push('TC e DO devem ser indicações SIM/NÃO.');
   if(format!=='presencial'&&row.online)errors.push('DO é permitido somente no Presencial.');
   if(!Number.isInteger(Number(row.period))||Number(row.period)<1||Number(row.period)>max)errors.push('Período inválido.');
-  for(const k of ['ch',...cols(format)])if(!Number.isSafeInteger(Number(row[k]||0))||Number(row[k]||0)<0)errors.push(`${row.name||'Disciplina'}: ${labels[k]} deve ser inteira e não negativa.`);
+  for(const k of ['ch',...cols(format)])if(row[k]===null||typeof row[k]==='boolean'||Number.isNaN(row[k])||!Number.isSafeInteger(Number(row[k]??0))||Number(row[k]??0)<0)errors.push(`${row.name||'Disciplina'}: ${labels[k]} deve ser inteira e não negativa.`);
   if(submit){
    if(!normal(row.name)||Number(row.ch)<=0)errors.push('Informe nome e CH total positiva para toda disciplina.');
    if(cols(format).reduce((n,k)=>n+Number(row[k]||0),0)!==Number(row.ch))errors.push(`${row.name}: distribuição diferente da CH TOTAL.`);
@@ -50,12 +60,12 @@ export function validateData(data,format,reg,{submit=false,name=''}={}){
   if(!formats[format]||dist.blocked)errors.push('Formato não permitido ao curso/grau/área.');
   if(Number(data.semesters)<Number(reg.semMin)||Number(data.semesters)>Number(reg.semMax))errors.push('Duração fora dos limites de integralização.');
   if(t.total<Number(reg.minHours))errors.push('CH do curso abaixo do mínimo legal cadastrado.');
-  if(t.extension<Math.ceil(t.total/10))errors.push(`Extensão insuficiente: mínimo ${Math.ceil(t.total/10)}h, incluindo AC na base.`);
-  if(reg.internshipPercent!==null&&t.internship<Math.ceil(t.total*Number(reg.internshipPercent)/100))errors.push('Estágio abaixo do mínimo cadastrado sobre CH total + AC.');
-  if(reg.practicePercent!==null&&t.practice<Math.ceil(t.total*Number(reg.practicePercent)/100))errors.push('Prática abaixo do mínimo cadastrado.');
-  const minimum=Math.ceil(t.total*dist.pres/100);
+  if(t.extension<minimumHours(t.total,10))errors.push(`Extensão insuficiente: mínimo ${minimumHours(t.total,10)}h, incluindo AC na base.`);
+  if(reg.internshipPercent!==null&&t.internship<minimumHours(t.total,reg.internshipPercent))errors.push('Estágio abaixo do mínimo cadastrado sobre CH total + AC.');
+  if(reg.practicePercent!==null&&t.practice<minimumHours(t.total,reg.practicePercent))errors.push('Prática abaixo do mínimo cadastrado.');
+  const minimum=minimumHours(t.total,dist.pres);
   if(t.presential<minimum)errors.push(`Presencialidade mínima: ${minimum}h.`);
-  if(t.mediated+Math.max(0,t.presential-t.total*dist.pres/100)<Math.ceil(t.total*dist.comp/100))errors.push('Mínimo complementar presencial/síncrono mediado não atendido.');
+  if(dist.comp&&t.mediated+Math.max(minimum,t.presential)<minimumHours(t.total,dist.pres+dist.comp))errors.push('Mínimo complementar presencial/síncrono mediado não atendido.');
   if(normal(reg.degree)==='licenciatura'){for(const [n,minimum] of Object.entries(reg.nuclei||{})){const hours=rows.filter(r=>r.nucleus===n).reduce((total,r)=>total+Number(r.ch||0),0);if(hours<Number(minimum))errors.push('Núcleo '+n+': mínimo '+minimum+'h.');}}
   if(normal(reg.degree)==='licenciatura'&&!names.has('libras'))errors.push('Licenciatura exige LIBRAS.');
  }
