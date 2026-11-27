@@ -14,6 +14,7 @@ export function distribution(name,cfg,format){
  if(normal(cfg.degree)==='licenciatura')return {pres:30,comp:20};
  return {pres:['07','08','09'].includes(String(cfg.area))?40:30,comp:20};
 }
+export const allowedFormats=(name,cfg)=>['presencial','semi','ead'].filter(f=>!distribution(name,cfg,f).blocked);
 export function totals(data,format){
  const rows=data.rows||[],sum=k=>rows.reduce((a,r)=>a+Number(r[k]||0),0),ac=Number(data.ac||0),total=sum('ch')+ac;
  return {total,ac,extension:sum('ext'),internship:sum('est'),practice:sum('prat'),presential:format==='presencial'?sum('tp')+sum('prat')+sum('ext')+sum('est')+ac:sum('tp')+sum('prova')+sum('ext')+sum('est'),distance:format==='presencial'?sum('ead'):sum('eadAssincrona')+sum('eadSincronaMediada')+sum('eadSincrona')+ac,mediated:sum('eadSincronaMediada')};
@@ -46,7 +47,7 @@ export function validateData(data,format,reg,{submit=false,name=''}={}){
   if(Object.values(t).some(n=>!Number.isSafeInteger(n)))errors.push('Os totais ultrapassam o limite de cálculo exato.');
   if(reg.degree!=='Tecnólogo'&&Object.values(data.certs||{}).some(text=>String(text).trim()))errors.push('Certificações intermediárias são exclusivas dos cursos Tecnólogos.');
   if(!rows.length)errors.push('Inclua disciplinas.');
-  if(!reg.formats?.includes(format)||dist.blocked)errors.push('Formato não permitido ao curso/grau/área.');
+  if(!formats[format]||dist.blocked)errors.push('Formato não permitido ao curso/grau/área.');
   if(Number(data.semesters)<Number(reg.semMin)||Number(data.semesters)>Number(reg.semMax))errors.push('Duração fora dos limites de integralização.');
   if(t.total<Number(reg.minHours))errors.push('CH do curso abaixo do mínimo legal cadastrado.');
   if(t.extension<Math.ceil(t.total/10))errors.push(`Extensão insuficiente: mínimo ${Math.ceil(t.total/10)}h, incluindo AC na base.`);
@@ -62,12 +63,20 @@ export function validateData(data,format,reg,{submit=false,name=''}={}){
 }
 export function validateRegulation(payload){
  const c=payload.config||{},errors=[];
- if(!payload.name?.trim()||!['Bacharelado','Licenciatura','Tecnólogo'].includes(c.degree))errors.push('Nome e grau obrigatórios.');
- for(const k of ['minHours','semMin','semMax'])if(!Number.isSafeInteger(Number(c[k]))||Number(c[k])<1)errors.push('Carga horária e integralização devem ser inteiras e positivas.');
- if(Number(c.semMax)<Number(c.semMin))errors.push('Integralização máxima inferior à mínima.');
- for(const k of ['internshipPercent','practicePercent'])if(c[k]!==null&&(!Number.isFinite(Number(c[k]))||Number(c[k])<0||Number(c[k])>100))errors.push('Percentual inválido.');
+ if(!payload.name?.trim())errors.push('Informe o nome do curso.');
+ if(!Number.isSafeInteger(Number(c.minHours))||Number(c.minHours)<1)errors.push('CH mínima legal deve ser inteira e positiva.');
  if(!c.cine||!c.area||!c.source)errors.push('Informe CINE, área e fonte normativa.');
  if(!/^(0[0-9]|10)$/.test(String(c.area??'')))errors.push('Selecione uma área CINE válida, de 00 a 10.');
- if(!Array.isArray(c.formats)||!c.formats.length||c.formats.some(f=>!formats[f]||distribution(payload.name,c,f).blocked))errors.push('Formatos incompatíveis com o curso/grau/área.');
  return errors;
+}
+export function courseParameters(course){const r=course.regulation?.config||{},c=course.config||{};return {...r,...c,minHours:r.minHours,area:r.area,cine:r.cine};}
+export function validateCourse(config){
+ const errors=[];
+ if(!['Bacharelado','Licenciatura','Tecnólogo'].includes(config.degree))errors.push('Selecione o grau acadêmico.');
+ for(const k of ['semMin','semMax'])if(!Number.isInteger(Number(config[k]))||Number(config[k])<1||Number(config[k])>30)errors.push('Integralização deve ser inteira, entre 1 e 30 semestres.');
+ if(Number(config.semMax)<Number(config.semMin))errors.push('Integralização máxima inferior à mínima.');
+ for(const k of ['internshipPercent','practicePercent'])if(config[k]!==null&&(config[k]===''||config[k]===undefined||!Number.isFinite(Number(config[k]))||Number(config[k])<0||Number(config[k])>100))errors.push('Informe o percentual de estágio/prática, de 0 a 100, ou marque Não se aplica.');
+ if(!Array.isArray(config.axes)||config.axes.length>100||config.axes.some(a=>typeof a!=='string'||!a.trim()||a.length>200)||new Set(config.axes.map(normal)).size!==config.axes.length)errors.push('Eixos devem ter nomes únicos, com até 200 caracteres.');
+ if(Object.values(config.axisColors||{}).some(color=>!/^#[0-9a-f]{6}$/i.test(color)))errors.push('Cor de eixo inválida.');
+ return [...new Set(errors)];
 }
